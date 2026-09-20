@@ -35,7 +35,7 @@ local EXEC_ID = getgenv().AtlanticExecId
 
 -- [[ GLOBALS ]]
 _G.AutoChest = false
-_G.GlobalTweenSpeed = 400 -- Fast travel for island hopping
+_G.GlobalTweenSpeed = 400
 _G.Moving = false
 _G.Sweeping = false
 
@@ -137,7 +137,7 @@ end)
 table.insert(getgenv().AtlanticConnections, idleConn)
 
 -- [[ RUNTIME & FOD TIMER SYSTEM ]]
-local FOD_SPAWN_TIME = 4 * 3600 -- 4 hours in seconds
+local FOD_SPAWN_TIME = 4 * 3600
 
 local function formatTime(seconds)
     if seconds < 0 then seconds = 0 end
@@ -164,7 +164,7 @@ end)
 
 -- [[ HIGH-ALTITUDE FLIGHT PATHFINDING SYSTEM ]]
 local targetCFrame = CFrame.new(0, -500, 0)
-local cruiseAltitude = 600 -- Fly high above all islands
+local baseCruiseAltitude = 600 
 
 local lastUpdate = os.clock()
 local heartConn = RunService.Heartbeat:Connect(function()
@@ -190,18 +190,20 @@ local heartConn = RunService.Heartbeat:Connect(function()
         -- Calculate flat horizontal distance to chest
         local flatDist = (Vector3.new(goalPos.X, 0, goalPos.Z) - Vector3.new(currentPos.X, 0, currentPos.Z)).Magnitude
         
-        -- Phase 1: Ascend to safe cruise altitude if we are too low and still need to travel horizontally
-        if currentPos.Y < cruiseAltitude - 10 and flatDist > 5 then
-            goalPos = Vector3.new(currentPos.X, cruiseAltitude, currentPos.Z)
-            
-        -- Phase 2: If we are high enough, move horizontally to the X/Z of the chest
-        elseif currentPos.Y > cruiseAltitude - 50 and flatDist > 5 then
-            goalPos = Vector3.new(goalPos.X, cruiseAltitude, goalPos.Z)
-            
-        -- Phase 3: Once we are directly above the chest (flatDist <= 5), drop down to the exact chest Y position!
-        else
-            goalPos = Vector3.new(goalPos.X, goalPos.Y, goalPos.Z)
+        -- Dynamically adjust cruise altitude so we don't fly into sky island terrain
+        local targetCruiseAlt = math.max(baseCruiseAltitude, goalPos.Y + 150)
+        
+        if flatDist > 5 then
+            -- Phase 1 & 2: We need to travel horizontally. Maintain cruise altitude.
+            if currentPos.Y < targetCruiseAlt - 10 then
+                -- Ascend straight up
+                goalPos = Vector3.new(currentPos.X, targetCruiseAlt, currentPos.Z)
+            else
+                -- Move towards the chest X/Z, keeping cruise altitude
+                goalPos = Vector3.new(goalPos.X, targetCruiseAlt, goalPos.Z)
+            end
         end
+        -- Phase 3: If flatDist <= 5, we drop down to the exact chest Y position. (goalPos remains unchanged)
         
         local direction = (goalPos - currentPos)
         local distance = direction.Magnitude
@@ -249,14 +251,28 @@ local function getChests()
     return chests
 end
 
+-- Smart positioning to prevent flying 100m above the chest due to huge hitboxes
 local function getChestPos(chest)
     if not chest or not chest.Parent then return nil end
+    local pos = nil
+    local sizeY = 0
+    
     if chest:IsA("Model") then
-        return chest:GetPivot().Position
+        local cf, size = chest:GetBoundingBox()
+        pos = cf.Position
+        sizeY = size.Y
     elseif chest:IsA("BasePart") then
-        return chest.Position
+        pos = chest.Position
+        sizeY = chest.Size.Y
     end
-    return nil
+    
+    -- If the chest has a massive hitbox (like 200 studs tall), move our target down to the bottom of it
+    -- This stops the script from flying 100 meters above the visual chest
+    if sizeY > 5 then
+        pos = Vector3.new(pos.X, pos.Y - (sizeY / 2), pos.Z)
+    end
+    
+    return pos
 end
 
 local function isChestHit(chest)
@@ -285,9 +301,12 @@ local function fastAreaCheck(chest)
         
         local angle = i * math.rad(75)
         local radius = 0.5 + (i * 0.3)
-        local offset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+        -- Add a slight vertical sine wave so we hit hitboxes that might be slightly above or below the visual model
+        local yOffset = math.sin(i * 0.5) * 2 
         
+        local offset = Vector3.new(math.cos(angle) * radius, yOffset, math.sin(angle) * radius)
         local targetPos = chestPos + offset
+        
         hrp.CFrame = hrp.CFrame:Lerp(CFrame.new(targetPos, chestPos), 0.9)
         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         
