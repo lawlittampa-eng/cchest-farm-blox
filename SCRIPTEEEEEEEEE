@@ -222,41 +222,26 @@ local blacklistedChests = {}
 local function getChests()
     local chests = {}
     for _, v in pairs(Workspace:GetDescendants()) do
-        if v:IsA("Model") or v:IsA("BasePart") then
-            local name = v.Name:lower()
-            if string.find(name, "chest") and not v:IsA("Humanoid") then
-                if v.Parent and not string.find(v.Parent.Name:lower(), "chest") then
-                    if not table.find(blacklistedChests, v) then
-                        table.insert(chests, v)
-                    end
-                end
+        -- STRICT RULE: Only target Models named exactly "Chest"
+        -- This stops it from flying to invisible "ChestDetector" parts in the sky
+        if v:IsA("Model") and v.Name == "Chest" then
+            if not table.find(blacklistedChests, v) then
+                table.insert(chests, v)
             end
         end
     end
     return chests
 end
 
--- Smart positioning to prevent flying 100m above the chest due to huge hitboxes
 local function getChestPos(chest)
     if not chest or not chest.Parent then return nil end
-    local pos = nil
-    local sizeY = 0
-    
+    -- GetPivot perfectly targets the base of the model on the ground
     if chest:IsA("Model") then
-        local cf, size = chest:GetBoundingBox()
-        pos = cf.Position
-        sizeY = size.Y
+        return chest:GetPivot().Position
     elseif chest:IsA("BasePart") then
-        pos = chest.Position
-        sizeY = chest.Size.Y
+        return chest.Position
     end
-    
-    -- If the chest has a massive hitbox, move our target down to the bottom of it
-    if sizeY > 5 then
-        pos = Vector3.new(pos.X, pos.Y - (sizeY / 2), pos.Z)
-    end
-    
-    return pos
+    return nil
 end
 
 local function isChestHit(chest)
