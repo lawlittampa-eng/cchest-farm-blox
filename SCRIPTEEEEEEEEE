@@ -219,14 +219,11 @@ local function hasFistOfDarkness()
 end
 
 -- [[ ORIGINAL CHEST FINDER FROM OLD SCRIPT ]]
-local blacklistedChests = {}
 local function getChests()
     local chests = {}
     for _, v in pairs(Workspace:GetDescendants()) do
         if string.find(v.Name:lower(), "chest") and (v:IsA("Part") or v:IsA("Model") or v:IsA("MeshPart")) then
-            if not table.find(blacklistedChests, v) then
-                table.insert(chests, v)
-            end
+            table.insert(chests, v)
         end
     end
     return chests
@@ -327,50 +324,43 @@ task.spawn(function()
                     if EXEC_ID ~= getgenv().AtlanticExecId then break end
                     if not _G.AutoChest or hasFistOfDarkness() then break end
                     
-                    if chest and chest.Parent and not isChestHit(chest) and not table.find(blacklistedChests, chest) then
-                        local chestPos = getChestPos(chest)
-                        if chestPos then
-                            StatusLabel.Text = "Status: Flying to " .. chest.Name
-                            
-                            moveTo(CFrame.new(chestPos))
-                            
-                            local timeout = os.clock() + 15 
-                            local char = LocalPlayer.Character
-                            while _G.AutoChest and char and char:FindFirstChild("HumanoidRootPart") and os.clock() < timeout do
-                                if EXEC_ID ~= getgenv().AtlanticExecId then break end
-                                local hrp = char.HumanoidRootPart
-                                local flatDist = (Vector3.new(chestPos.X, 0, chestPos.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
-                                -- Wait until we are very close to it
-                                if flatDist < 3 and math.abs(hrp.Position.Y - chestPos.Y) < 8 then
-                                    break
-                                end
-                                task.wait(0.1)
-                            end
-                            
-                            _G.Moving = false
-                            
-                            if not _G.AutoChest or hasFistOfDarkness() then break end
-                            
-                            StatusLabel.Text = "Status: Sweeping " .. chest.Name
-                            local hit = fastAreaCheck(chest)
-                            
-                            if hasFistOfDarkness() then
+                    if chest and chest.Parent and not isChestHit(chest) then
+                        local chestCFrame = chest:IsA("Model") and chest:GetPivot() or chest.CFrame
+                        local chestPos = chestCFrame.Position
+                        
+                        StatusLabel.Text = "Status: Flying to " .. chest.Name
+                        moveTo(CFrame.new(chestPos))
+                        
+                        local timeout = os.clock() + 15 
+                        local char = LocalPlayer.Character
+                        while _G.AutoChest and char and char:FindFirstChild("HumanoidRootPart") and os.clock() < timeout do
+                            if EXEC_ID ~= getgenv().AtlanticExecId then break end
+                            local hrp = char.HumanoidRootPart
+                            local flatDist = (Vector3.new(chestPos.X, 0, chestPos.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
+                            -- Wait until we are very close to it
+                            if flatDist < 3 and math.abs(hrp.Position.Y - chestPos.Y) < 8 then
                                 break
-                            elseif hit then
-                                table.insert(blacklistedChests, chest)
-                                StatusLabel.Text = "Status: Cleared " .. chest.Name
-                                task.wait(0.2)
-                            else
-                                table.insert(blacklistedChests, chest)
-                                StatusLabel.Text = "Status: Blacklisted " .. chest.Name
-                                task.wait(0.2)
                             end
+                            task.wait(0.1)
+                        end
+                        
+                        _G.Moving = false
+                        
+                        if not _G.AutoChest or hasFistOfDarkness() then break end
+                        
+                        StatusLabel.Text = "Status: Sweeping " .. chest.Name
+                        local hit = fastAreaCheck(chest)
+                        
+                        if hasFistOfDarkness() then
+                            break
+                        elseif hit then
+                            StatusLabel.Text = "Status: Confirmed Hit " .. chest.Name
+                            task.wait(0.2)
+                        else
+                            StatusLabel.Text = "Status: Skipped " .. chest.Name
+                            task.wait(0.2)
                         end
                     end
-                end
-                
-                if #chests == 0 then
-                    blacklistedChests = {}
                 end
             end
         end
