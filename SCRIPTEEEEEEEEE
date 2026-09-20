@@ -187,10 +187,20 @@ local heartConn = RunService.Heartbeat:Connect(function()
         local currentPos = hrp.Position
         local goalPos = targetCFrame.Position
         
-        if currentPos.Y < cruiseAltitude - 10 then
+        -- Calculate flat horizontal distance to chest
+        local flatDist = (Vector3.new(goalPos.X, 0, goalPos.Z) - Vector3.new(currentPos.X, 0, currentPos.Z)).Magnitude
+        
+        -- Phase 1: Ascend to safe cruise altitude if we are too low and still need to travel horizontally
+        if currentPos.Y < cruiseAltitude - 10 and flatDist > 5 then
             goalPos = Vector3.new(currentPos.X, cruiseAltitude, currentPos.Z)
-        elseif math.abs(currentPos.Y - cruiseAltitude) < 25 then
+            
+        -- Phase 2: If we are high enough, move horizontally to the X/Z of the chest
+        elseif currentPos.Y > cruiseAltitude - 50 and flatDist > 5 then
             goalPos = Vector3.new(goalPos.X, cruiseAltitude, goalPos.Z)
+            
+        -- Phase 3: Once we are directly above the chest (flatDist <= 5), drop down to the exact chest Y position!
+        else
+            goalPos = Vector3.new(goalPos.X, goalPos.Y, goalPos.Z)
         end
         
         local direction = (goalPos - currentPos)
@@ -345,7 +355,8 @@ task.spawn(function()
                                 if EXEC_ID ~= getgenv().AtlanticExecId then break end
                                 local hrp = char.HumanoidRootPart
                                 local flatDist = (Vector3.new(chestPos.X, 0, chestPos.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
-                                if flatDist < 3 and math.abs(hrp.Position.Y - chestPos.Y) < 10 then
+                                -- Wait until we are perfectly above it and have dropped down close to it
+                                if flatDist < 3 and math.abs(hrp.Position.Y - chestPos.Y) < 8 then
                                     break
                                 end
                                 task.wait(0.1)
