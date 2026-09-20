@@ -11,15 +11,19 @@ local LocalPlayer = Players.LocalPlayer
 -- [[ GLOBALS ]]
 _G.AutoChest = false
 _G.GlobalTweenSpeed = 300
+_G.Circling = false
 
 -- [[ BASIC UI (NO LIBRARIES) ]]
 local ScreenGui = Instance.new("ScreenGui")
 local ToggleFrame = Instance.new("Frame")
-local ToggleButton = Instance.new("TextButton")
 local StatusLabel = Instance.new("TextLabel")
+local RuntimeLabel = Instance.new("TextLabel")
+local ToggleButton = Instance.new("TextButton")
 
-ScreenGui.Name = "AutoChestGui"
+ScreenGui.Name = "AtlanticHubAdvanced"
 ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
 pcall(function()
     ScreenGui.Parent = game:GetService("CoreGui")
 end)
@@ -29,30 +33,51 @@ end
 
 ToggleFrame.Name = "MainFrame"
 ToggleFrame.Parent = ScreenGui
-ToggleFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+ToggleFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 ToggleFrame.BorderSizePixel = 0
-ToggleFrame.Position = UDim2.new(0.05, 0, 0.2, 0)
-ToggleFrame.Size = UDim2.new(0, 200, 0, 80)
+ToggleFrame.Position = UDim2.new(0.05, 0, 0.3, 0)
+ToggleFrame.Size = UDim2.new(0, 220, 0, 120)
 ToggleFrame.Active = true
 ToggleFrame.Draggable = true
 
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 8)
+uiCorner.Parent = ToggleFrame
+
+local uiStroke = Instance.new("UIStroke")
+uiStroke.Color = Color3.fromRGB(60, 60, 60)
+uiStroke.Thickness = 1.5
+uiStroke.Parent = ToggleFrame
+
 StatusLabel.Parent = ToggleFrame
-StatusLabel.Size = UDim2.new(1, 0, 0.4, 0)
+StatusLabel.Size = UDim2.new(1, 0, 0, 30)
 StatusLabel.BackgroundTransparency = 1
 StatusLabel.Text = "Status: Idle"
 StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 StatusLabel.TextSize = 14
 StatusLabel.Font = Enum.Font.SourceSansBold
 
-ToggleButton.Name = "ToggleButton"
+RuntimeLabel.Parent = ToggleFrame
+RuntimeLabel.Position = UDim2.new(0, 0, 0, 25)
+RuntimeLabel.Size = UDim2.new(1, 0, 0, 20)
+RuntimeLabel.BackgroundTransparency = 1
+RuntimeLabel.Text = "Server: 00:00:00 | Hub: 00:00:00"
+RuntimeLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+RuntimeLabel.TextSize = 12
+RuntimeLabel.Font = Enum.Font.SourceSans
+
 ToggleButton.Parent = ToggleFrame
 ToggleButton.Position = UDim2.new(0.1, 0, 0.45, 0)
-ToggleButton.Size = UDim2.new(0.8, 0, 0.45, 0)
+ToggleButton.Size = UDim2.new(0.8, 0, 0, 40)
 ToggleButton.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
 ToggleButton.Text = "Auto Chest: OFF"
 ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleButton.TextSize = 15
 ToggleButton.Font = Enum.Font.SourceSansBold
+
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 6)
+btnCorner.Parent = ToggleButton
 
 ToggleButton.MouseButton1Click:Connect(function()
     _G.AutoChest = not _G.AutoChest
@@ -66,7 +91,9 @@ ToggleButton.MouseButton1Click:Connect(function()
     end
 end)
 
--- [[ NOTIFY SERVER RUNTIME ]]
+-- [[ RUNTIME SYSTEM (UI BASED) ]]
+local hubStartTime = os.time()
+
 local function formatTime(seconds)
     local hours = math.floor(seconds / 3600)
     local mins = math.floor((seconds % 3600) / 60)
@@ -76,8 +103,9 @@ end
 
 task.spawn(function()
     while task.wait(1) do
-        local serverTime = workspace.DistributedGameTime
-        print("Server Runtime: " .. formatTime(serverTime))
+        local serverTime = workspace.DistributedGameTime or 0
+        local hubTime = os.time() - hubStartTime
+        RuntimeLabel.Text = "Server: " .. formatTime(serverTime) .. " | Hub: " .. formatTime(hubTime)
     end
 end)
 
@@ -97,7 +125,8 @@ RunService.Heartbeat:Connect(function()
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end
     local hrp = char.HumanoidRootPart
     
-    if currentTween and currentTween.PlaybackState == Enum.PlaybackState.Playing then
+    -- Only move player if we are actively tweening or circling
+    if _G.Circling or (currentTween and currentTween.PlaybackState == Enum.PlaybackState.Playing) then
         if (hrp.Position - block.Position).Magnitude <= 200 then
             hrp.CFrame = block.CFrame
         else
@@ -129,33 +158,129 @@ local function tweenTo(targetCFrame)
     return currentTween
 end
 
--- [[ AUTO CHEST FARM ]]
+-- [[ HELPER FUNCTIONS ]]
 local function getChests()
     local chests = {}
     for _, v in pairs(Workspace:GetDescendants()) do
-        if string.find(v.Name:lower(), "chest") and (v:IsA("Part") or v:IsA("Model")) then
+        if string.find(v.Name:lower(), "chest") and (v:IsA("Part") or v:IsA("Model") or v:IsA("MeshPart")) then
             table.insert(chests, v)
         end
     end
     return chests
 end
 
+local function getChestPos(chest)
+    if not chest or not chest.Parent then return nil end
+    if chest:IsA("Model") then
+        return chest:GetPivot().Position
+    elseif chest:IsA("BasePart") then
+        return chest.Position
+    end
+    return nil
+end
+
+-- Advanced Hit Confirmation
+local function isChestHit(chest)
+    if not chest or not chest.Parent then return true end -- Destroyed/Removed
+    if chest:IsA("Model") then
+        local hum = chest:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health <= 0 then return true end
+        local opened = chest:FindFirstChild("Opened")
+        if opened and opened.Value == true then return true end
+    elseif chest:IsA("BasePart") then
+        local opened = chest:FindFirstChild("Opened")
+        if opened and opened.Value == true then return true end
+    end
+    return false
+end
+
+-- Generic Attack Function
+local function attack()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local tool = char:FindFirstChildOfClass("Tool")
+    if tool then
+        pcall(function() tool:Activate() end)
+    end
+    pcall(function() 
+        if mouse1click then 
+            mouse1click() 
+        else
+            local VirtualInputManager = game:GetService("VirtualInputManager")
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+        end
+    end)
+end
+
+-- Circling Logic
+local function circleAndAttack(chest)
+    _G.Circling = true
+    local radius = 8
+    local angle = 0
+    local timeout = os.time() + 15 -- Timeout after 15 seconds of circling to prevent infinite loops
+    
+    while _G.AutoChest and not isChestHit(chest) and os.time() < timeout do
+        local center = getChestPos(chest)
+        if center then
+            angle = angle + math.rad(60)
+            local targetPos = center + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+            block.CFrame = CFrame.new(targetPos, center) -- Look at center while circling
+            attack()
+        else
+            break
+        end
+        task.wait(0.3)
+    end
+    
+    _G.Circling = false
+end
+
+-- [[ AUTO CHEST FARM ]]
 task.spawn(function()
     while task.wait(0.5) do
         if _G.AutoChest then
             local chests = getChests()
-            StatusLabel.Text = "Found " .. #chests .. " Chests"
+            StatusLabel.Text = "Status: Found " .. #chests .. " Chests"
             
             for _, chest in ipairs(chests) do
                 if not _G.AutoChest then break end
-                if chest and chest.Parent then
+                if chest and chest.Parent and not isChestHit(chest) then
                     local chestCFrame = chest:IsA("Model") and chest:GetPivot() or chest.CFrame
+                    StatusLabel.Text = "Status: Moving to " .. chest.Name
+                    
                     local tween = tweenTo(chestCFrame)
+                    local completed = false
                     
                     if tween then
-                        tween.Completed:Wait()
+                        local connection = tween.Completed:Connect(function()
+                            completed = true
+                        end)
+                        
+                        -- Wait for tween to complete or chest to be destroyed/already hit
+                        while not completed and chest.Parent and _G.AutoChest and not isChestHit(chest) do
+                            task.wait(0.1)
+                        end
+                        connection:Disconnect()
                     end
-                    task.wait(0.2)
+                    
+                    -- If we arrived but didn't hit it, circle and attack
+                    if chest and chest.Parent and _G.AutoChest and not isChestHit(chest) then
+                        if currentTween then currentTween:Cancel() end
+                        StatusLabel.Text = "Status: Circling " .. chest.Name
+                        circleAndAttack(chest)
+                        
+                        if isChestHit(chest) then
+                            StatusLabel.Text = "Status: Confirmed Hit " .. chest.Name
+                            task.wait(0.5)
+                        else
+                            StatusLabel.Text = "Status: Timed out on " .. chest.Name
+                            task.wait(0.5)
+                        end
+                    elseif chest and not chest.Parent then
+                        StatusLabel.Text = "Status: Destroyed " .. chest.Name
+                        task.wait(0.5)
+                    end
                 end
             end
         end
