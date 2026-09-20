@@ -1,0 +1,163 @@
+if getgenv().AtlanticHubLoaded then return end
+getgenv().AtlanticHubLoaded = true
+
+-- [[ SERVICES ]]
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local LocalPlayer = Players.LocalPlayer
+
+-- [[ GLOBALS ]]
+_G.AutoChest = false
+_G.GlobalTweenSpeed = 300
+
+-- [[ BASIC UI (NO LIBRARIES) ]]
+local ScreenGui = Instance.new("ScreenGui")
+local ToggleFrame = Instance.new("Frame")
+local ToggleButton = Instance.new("TextButton")
+local StatusLabel = Instance.new("TextLabel")
+
+ScreenGui.Name = "AutoChestGui"
+ScreenGui.ResetOnSpawn = false
+pcall(function()
+    ScreenGui.Parent = game:GetService("CoreGui")
+end)
+if not ScreenGui.Parent then
+    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+ToggleFrame.Name = "MainFrame"
+ToggleFrame.Parent = ScreenGui
+ToggleFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+ToggleFrame.BorderSizePixel = 0
+ToggleFrame.Position = UDim2.new(0.05, 0, 0.2, 0)
+ToggleFrame.Size = UDim2.new(0, 200, 0, 80)
+ToggleFrame.Active = true
+ToggleFrame.Draggable = true
+
+StatusLabel.Parent = ToggleFrame
+StatusLabel.Size = UDim2.new(1, 0, 0.4, 0)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Text = "Status: Idle"
+StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+StatusLabel.TextSize = 14
+StatusLabel.Font = Enum.Font.SourceSansBold
+
+ToggleButton.Name = "ToggleButton"
+ToggleButton.Parent = ToggleFrame
+ToggleButton.Position = UDim2.new(0.1, 0, 0.45, 0)
+ToggleButton.Size = UDim2.new(0.8, 0, 0.45, 0)
+ToggleButton.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+ToggleButton.Text = "Auto Chest: OFF"
+ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleButton.TextSize = 15
+ToggleButton.Font = Enum.Font.SourceSansBold
+
+ToggleButton.MouseButton1Click:Connect(function()
+    _G.AutoChest = not _G.AutoChest
+    if _G.AutoChest then
+        ToggleButton.Text = "Auto Chest: ON"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(40, 180, 40)
+    else
+        ToggleButton.Text = "Auto Chest: OFF"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+        StatusLabel.Text = "Status: Disabled"
+    end
+end)
+
+-- [[ NOTIFY SERVER RUNTIME ]]
+local function formatTime(seconds)
+    local hours = math.floor(seconds / 3600)
+    local mins = math.floor((seconds % 3600) / 60)
+    local secs = math.floor(seconds % 60)
+    return string.format("%02d:%02d:%02d", hours, mins, secs)
+end
+
+task.spawn(function()
+    while task.wait(1) do
+        local serverTime = workspace.DistributedGameTime
+        print("Server Runtime: " .. formatTime(serverTime))
+    end
+end)
+
+-- [[ TWEEN MOVEMENT PART ]]
+local currentTween = nil
+local block = Instance.new("Part", workspace)
+block.Size = Vector3.new(1, 1, 1)
+block.Name = "AtlanticHubTweenBlock"
+block.Anchored = true
+block.CanCollide = false
+block.CanTouch = false
+block.Transparency = 1
+block.CFrame = CFrame.new(0, -500, 0)
+
+RunService.Heartbeat:Connect(function()
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    local hrp = char.HumanoidRootPart
+    
+    if currentTween and currentTween.PlaybackState == Enum.PlaybackState.Playing then
+        if (hrp.Position - block.Position).Magnitude <= 200 then
+            hrp.CFrame = block.CFrame
+        else
+            block.CFrame = hrp.CFrame
+        end
+        for _, v in pairs(char:GetDescendants()) do
+            if v:IsA("BasePart") then v.CanCollide = false end
+        end
+    end
+end)
+
+local function tweenTo(targetCFrame)
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    local hrp = char.HumanoidRootPart
+
+    local distance = (hrp.Position - targetCFrame.Position).Magnitude
+    local timeToTravel = distance / _G.GlobalTweenSpeed
+
+    if currentTween then
+        currentTween:Cancel()
+    end
+
+    block.CFrame = hrp.CFrame
+    local tweenInfo = TweenInfo.new(timeToTravel, Enum.EasingStyle.Linear)
+    currentTween = TweenService:Create(block, tweenInfo, {CFrame = targetCFrame})
+    currentTween:Play()
+
+    return currentTween
+end
+
+-- [[ AUTO CHEST FARM ]]
+local function getChests()
+    local chests = {}
+    for _, v in pairs(Workspace:GetDescendants()) do
+        if string.find(v.Name:lower(), "chest") and (v:IsA("Part") or v:IsA("Model")) then
+            table.insert(chests, v)
+        end
+    end
+    return chests
+end
+
+task.spawn(function()
+    while task.wait(0.5) do
+        if _G.AutoChest then
+            local chests = getChests()
+            StatusLabel.Text = "Found " .. #chests .. " Chests"
+            
+            for _, chest in ipairs(chests) do
+                if not _G.AutoChest then break end
+                if chest and chest.Parent then
+                    local chestCFrame = chest:IsA("Model") and chest:GetPivot() or chest.CFrame
+                    local tween = tweenTo(chestCFrame)
+                    
+                    if tween then
+                        tween.Completed:Wait()
+                    end
+                    task.wait(0.2)
+                end
+            end
+        end
+    end
+end)
