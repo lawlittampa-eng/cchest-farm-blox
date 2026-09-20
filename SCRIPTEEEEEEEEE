@@ -6,11 +6,12 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local VirtualUser = game:GetService("VirtualUser")
 local LocalPlayer = Players.LocalPlayer
 
 -- [[ GLOBALS ]]
 _G.AutoChest = false
-_G.GlobalTweenSpeed = 300
+_G.GlobalTweenSpeed = 400 -- Fast travel for island hopping
 _G.Moving = false
 _G.Sweeping = false
 
@@ -18,10 +19,11 @@ _G.Sweeping = false
 local ScreenGui = Instance.new("ScreenGui")
 local ToggleFrame = Instance.new("Frame")
 local StatusLabel = Instance.new("TextLabel")
-local RuntimeLabel = Instance.new("TextLabel")
+local TimerLabel = Instance.new("TextLabel")
+var RadarLabel = Instance.new("TextLabel")
 local ToggleButton = Instance.new("TextButton")
 
-ScreenGui.Name = "AtlanticHubAdvanced"
+ScreenGui.Name = "AtlanticFoDHunter"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
@@ -37,7 +39,7 @@ ToggleFrame.Parent = ScreenGui
 ToggleFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 ToggleFrame.BorderSizePixel = 0
 ToggleFrame.Position = UDim2.new(0.05, 0, 0.3, 0)
-ToggleFrame.Size = UDim2.new(0, 240, 0, 120)
+ToggleFrame.Size = UDim2.new(0, 280, 0, 150)
 ToggleFrame.Active = true
 ToggleFrame.Draggable = true
 
@@ -58,20 +60,29 @@ StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 StatusLabel.TextSize = 14
 StatusLabel.Font = Enum.Font.SourceSansBold
 
-RuntimeLabel.Parent = ToggleFrame
-RuntimeLabel.Position = UDim2.new(0, 0, 0, 25)
-RuntimeLabel.Size = UDim2.new(1, 0, 0, 20)
-RuntimeLabel.BackgroundTransparency = 1
-RuntimeLabel.Text = "Server: 00:00:00 | Hub: 00:00:00"
-RuntimeLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
-RuntimeLabel.TextSize = 12
-RuntimeLabel.Font = Enum.Font.SourceSans
+TimerLabel.Parent = ToggleFrame
+TimerLabel.Position = UDim2.new(0, 0, 0, 25)
+TimerLabel.Size = UDim2.new(1, 0, 0, 20)
+TimerLabel.BackgroundTransparency = 1
+TimerLabel.Text = "Server: 00:00:00 | Next FoD: 04:00:00"
+TimerLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+TimerLabel.TextSize = 12
+TimerLabel.Font = Enum.Font.SourceSans
+
+RadarLabel.Parent = ToggleFrame
+RadarLabel.Position = UDim2.new(0, 0, 0, 45)
+RadarLabel.Size = UDim2.new(1, 0, 0, 20)
+RadarLabel.BackgroundTransparency = 1
+RadarLabel.Text = "Sea Beast: None | FoD: Not Found"
+RadarLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+RadarLabel.TextSize = 12
+RadarLabel.Font = Enum.Font.SourceSans
 
 ToggleButton.Parent = ToggleFrame
-ToggleButton.Position = UDim2.new(0.1, 0, 0.45, 0)
+ToggleButton.Position = UDim2.new(0.1, 0, 0.55, 0)
 ToggleButton.Size = UDim2.new(0.8, 0, 0, 40)
 ToggleButton.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
-ToggleButton.Text = "Auto Chest: OFF"
+ToggleButton.Text = "Hunt Fist of Darkness: OFF"
 ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleButton.TextSize = 15
 ToggleButton.Font = Enum.Font.SourceSansBold
@@ -83,20 +94,27 @@ btnCorner.Parent = ToggleButton
 ToggleButton.MouseButton1Click:Connect(function()
     _G.AutoChest = not _G.AutoChest
     if _G.AutoChest then
-        ToggleButton.Text = "Auto Chest: ON"
+        ToggleButton.Text = "Hunt Fist of Darkness: ON"
         ToggleButton.BackgroundColor3 = Color3.fromRGB(40, 180, 40)
     else
-        ToggleButton.Text = "Auto Chest: OFF"
+        ToggleButton.Text = "Hunt Fist of Darkness: OFF"
         ToggleButton.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
         StatusLabel.Text = "Status: Disabled"
         _G.Moving = false
     end
 end)
 
--- [[ ADVANCED RUNTIME SYSTEM ]]
-local hubStartTime = os.time()
+-- [[ ANTI AFK ]]
+LocalPlayer.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new())
+end)
+
+-- [[ RUNTIME & FOD TIMER SYSTEM ]]
+local FOD_SPAWN_TIME = 4 * 3600 -- 4 hours in seconds
 
 local function formatTime(seconds)
+    if seconds < 0 then seconds = 0 end
     local hours = math.floor(seconds / 3600)
     local mins = math.floor((seconds % 3600) / 60)
     local secs = math.floor(seconds % 60)
@@ -106,24 +124,21 @@ end
 task.spawn(function()
     while task.wait(1) do
         local serverTime = workspace.DistributedGameTime or 0
-        if serverTime == 0 then
-            serverTime = os.time() - hubStartTime
+        local remaining = FOD_SPAWN_TIME - serverTime
+        TimerLabel.Text = "Server: " .. formatTime(serverTime) .. " | Next FoD: " .. formatTime(remaining)
+        
+        -- Visual warning when timer resets
+        if remaining <= 0 then
+            TimerLabel.TextColor3 = Color3.fromRGB(50, 255, 50)
+        else
+            TimerLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
         end
-        local hubTime = os.time() - hubStartTime
-        RuntimeLabel.Text = "Server: " .. formatTime(serverTime) .. " | Hub: " .. formatTime(hubTime)
     end
 end)
 
--- [[ MOVEMENT & FLOAT SYSTEM ]]
-local block = Instance.new("Part")
-block.Size = Vector3.new(1, 1, 1)
-block.Name = "AtlanticHubTweenBlock"
-block.Anchored = true
-block.CanCollide = false
-block.CanTouch = false
-block.Transparency = 1
-block.CFrame = CFrame.new(0, -500, 0)
-block.Parent = workspace
+-- [[ HIGH-ALTITUDE FLIGHT PATHFINDING SYSTEM ]]
+local targetCFrame = CFrame.new(0, -500, 0)
+local cruiseAltitude = 600 -- Fly high above all islands
 
 local lastUpdate = os.clock()
 RunService.Heartbeat:Connect(function()
@@ -135,58 +150,61 @@ RunService.Heartbeat:Connect(function()
     local dt = currentTime - lastUpdate
     lastUpdate = currentTime
     
-    -- FLOAT MECHANIC: If AutoChest is on, cancel gravity completely so you never fall
     if _G.AutoChest then
         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        hrp.CanCollide = false
     end
     
     if _G.Moving then
-        local targetPos = block.Position
         local currentPos = hrp.Position
+        local goalPos = targetCFrame.Position
         
-        -- Calculate flat horizontal distance to chest
-        local flatDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(currentPos.X, 0, currentPos.Z)).Magnitude
-        
-        local desiredY = targetPos.Y
-        -- If we are far away horizontally, do not drop down into the ocean. 
-        -- Maintain our current height (or go higher) until we are directly above the chest.
-        if flatDist > 5 then
-            desiredY = math.max(currentPos.Y, targetPos.Y)
+        if currentPos.Y < cruiseAltitude - 10 then
+            goalPos = Vector3.new(currentPos.X, cruiseAltitude, currentPos.Z)
+        elseif math.abs(currentPos.Y - cruiseAltitude) < 25 then
+            goalPos = Vector3.new(goalPos.X, cruiseAltitude, goalPos.Z)
         end
         
-        local adjustedTarget = Vector3.new(targetPos.X, desiredY, targetPos.Z)
-        local direction = (adjustedTarget - currentPos)
+        local direction = (goalPos - currentPos)
         local distance = direction.Magnitude
-        
         local maxStep = _G.GlobalTweenSpeed * dt
         
         if distance > maxStep then
             local moveVector = direction.Unit * maxStep
-            -- Move smoothly and look towards target
-            hrp.CFrame = CFrame.new(currentPos + moveVector, adjustedTarget)
+            hrp.CFrame = CFrame.new(currentPos + moveVector, goalPos)
         else
-            -- We are close enough, snap exactly to target
-            hrp.CFrame = block.CFrame
+            hrp.CFrame = CFrame.new(goalPos)
         end
-        
-        -- Minimal noclip to prevent getting stuck
-        hrp.CanCollide = false
     end
 end)
 
-local function moveTo(targetCFrame)
-    block.CFrame = targetCFrame
+local function moveTo(goalCFrame)
+    targetCFrame = goalCFrame
     _G.Moving = true
 end
 
--- [[ HELPER FUNCTIONS ]]
+-- [[ FOD & SEA BEAST DETECTION ]]
+local function hasFistOfDarkness()
+    local char = LocalPlayer.Character
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if char and char:FindFirstChild("Fist of Darkness") then return true end
+    if backpack and backpack:FindFirstChild("Fist of Darkness") then return true end
+    return false
+end
+
+local blacklistedChests = {}
 local function getChests()
     local chests = {}
     for _, v in pairs(Workspace:GetDescendants()) do
-        if string.find(v.Name:lower(), "chest") and (v:IsA("Part") or v:IsA("Model") or v:IsA("MeshPart")) then
-            if v:IsA("Model") or (v:IsA("BasePart") and v.Size.Magnitude > 0.5) then
-                table.insert(chests, v)
+        if v:IsA("Model") or v:IsA("BasePart") then
+            local name = v.Name:lower()
+            if string.find(name, "chest") and not v:IsA("Humanoid") then
+                if v.Parent and not string.find(v.Parent.Name:lower(), "chest") then
+                    if not table.find(blacklistedChests, v) then
+                        table.insert(chests, v)
+                    end
+                end
             end
         end
     end
@@ -205,23 +223,13 @@ end
 
 local function isChestHit(chest)
     if not chest or not chest.Parent then return true end
-    
     local hum = chest:FindFirstChildOfClass("Humanoid") or chest:FindFirstChild("Humanoid", true)
     if hum and hum.Health <= 0 then return true end
-    
-    local opened = chest:FindFirstChild("Opened", true) or chest:FindFirstChild("Open", true)
-    if opened then
-        if opened:IsA("BoolValue") and opened.Value then return true end
-        if opened:IsA("IntValue") and opened.Value == 1 then return true end
-    end
-    
-    local lowerName = chest.Name:lower()
-    if string.find(lowerName, "opened") or string.find(lowerName, "broken") then return true end
-    
+    local opened = chest:FindFirstChild("Opened", true)
+    if opened and opened.Value then return true end
     return false
 end
 
--- [[ FAST AREA SWEEP (1-Second Expanding Spiral) ]]
 local function fastAreaCheck(chest)
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return false end
@@ -234,49 +242,79 @@ local function fastAreaCheck(chest)
     _G.Sweeping = true
     local startTime = os.clock()
     
-    for i = 1, 20 do
-        if isChestHit(chest) or os.clock() - startTime > 1.0 then break end
+    for i = 1, 25 do
+        if isChestHit(chest) or os.clock() - startTime > 1.5 or hasFistOfDarkness() then break end
         
-        local angle = i * math.rad(85)
-        local radius = 0.5 + (i * 0.25)
+        local angle = i * math.rad(75)
+        local radius = 0.5 + (i * 0.3)
         local offset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
         
-        local targetCFrame = CFrame.new(chestPos + offset, chestPos)
-        hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.8)
-        
-        -- Keep velocity zeroed while sweeping so gravity doesn't pull you down
+        local targetPos = chestPos + offset
+        hrp.CFrame = hrp.CFrame:Lerp(CFrame.new(targetPos, chestPos), 0.9)
         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         
-        task.wait(0.05)
+        task.wait(0.04)
     end
     _G.Sweeping = false
     
     return isChestHit(chest)
 end
 
--- [[ AUTO CHEST FARM ]]
+-- [[ BACKGROUND RADAR FOR SEA BEASTS ]]
+task.spawn(function()
+    while task.wait(2) do
+        local beastFound = false
+        for _, v in pairs(Workspace:GetDescendants()) do
+            if string.find(v.Name:lower(), "sea beast") or string.find(v.Name:lower(), "seabeast") then
+                beastFound = true
+                break
+            end
+        end
+        
+        if beastFound then
+            RadarLabel.Text = "Sea Beast: SPAWNED! | FoD: Not Found"
+            RadarLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+        else
+            RadarLabel.Text = "Sea Beast: None | FoD: Not Found"
+            RadarLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+        end
+    end
+end)
+
+-- [[ MAIN FOD HUNTER LOGIC ]]
 task.spawn(function()
     while task.wait(0.5) do
+        -- STOP CONDITION: If we got the Fist of Darkness!
+        if hasFistOfDarkness() then
+            _G.AutoChest = false
+            _G.Moving = false
+            ToggleButton.Text = "Hunt Fist of Darkness: OFF"
+            ToggleButton.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+            StatusLabel.Text = "Status: FIST OF DARKNESS ACQUIRED!"
+            RadarLabel.Text = "Sea Beast: None | FoD: FOUND!"
+            RadarLabel.TextColor3 = Color3.fromRGB(50, 255, 50)
+            continue
+        end
+        
         if _G.AutoChest then
             local chests = getChests()
-            StatusLabel.Text = "Status: Found " .. #chests .. " Chests"
+            StatusLabel.Text = "Status: Scanning Islands... (" .. #chests .. " Left)"
             
             for _, chest in ipairs(chests) do
-                if not _G.AutoChest then break end
-                if chest and chest.Parent and not isChestHit(chest) then
+                if not _G.AutoChest or hasFistOfDarkness() then break end
+                if chest and chest.Parent and not isChestHit(chest) and not table.find(blacklistedChests, chest) then
                     local chestPos = getChestPos(chest)
                     if chestPos then
-                        StatusLabel.Text = "Status: Moving to " .. chest.Name
+                        StatusLabel.Text = "Status: Flying to " .. chest.Name
                         
                         moveTo(CFrame.new(chestPos))
                         
-                        local timeout = os.clock() + 5
+                        local timeout = os.clock() + 15 
                         local char = LocalPlayer.Character
                         while _G.AutoChest and char and char:FindFirstChild("HumanoidRootPart") and os.clock() < timeout do
                             local hrp = char.HumanoidRootPart
-                            -- Wait until we are perfectly above or very close to the chest
                             local flatDist = (Vector3.new(chestPos.X, 0, chestPos.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
-                            if flatDist < 2 then
+                            if flatDist < 3 and math.abs(hrp.Position.Y - chestPos.Y) < 10 then
                                 break
                             end
                             task.wait(0.1)
@@ -284,25 +322,31 @@ task.spawn(function()
                         
                         _G.Moving = false
                         
-                        if not _G.AutoChest then break end
+                        if not _G.AutoChest or hasFistOfDarkness() then break end
                         
-                        if isChestHit(chest) then
-                            StatusLabel.Text = "Status: Collected " .. chest.Name
+                        StatusLabel.Text = "Status: Sweeping " .. chest.Name
+                        local hit = fastAreaCheck(chest)
+                        
+                        if hasFistOfDarkness() then
+                            break -- Break immediately if FoD was picked up during sweep
+                        elseif hit then
+                            -- Chest was opened/collected, but no FoD. Blacklist it.
+                            table.insert(blacklistedChests, chest)
+                            StatusLabel.Text = "Status: Cleared " .. chest.Name
                             task.wait(0.2)
                         else
-                            StatusLabel.Text = "Status: Sweeping " .. chest.Name
-                            local hit = fastAreaCheck(chest)
-                            
-                            if hit then
-                                StatusLabel.Text = "Status: Confirmed Hit " .. chest.Name
-                                task.wait(0.3)
-                            else
-                                StatusLabel.Text = "Status: Timed Out " .. chest.Name
-                                task.wait(0.5)
-                            end
+                            -- Un-openable chest (maybe fake, or bugged). Blacklist it so we don't get stuck.
+                            table.insert(blacklistedChests, chest)
+                            StatusLabel.Text = "Status: Blacklisted " .. chest.Name
+                            task.wait(0.2)
                         end
                     end
                 end
+            end
+            
+            -- Clear blacklist if all current chests are gone to allow fresh respawns
+            if #chests == 0 then
+                blacklistedChests = {}
             end
         end
     end
