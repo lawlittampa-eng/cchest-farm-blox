@@ -180,7 +180,13 @@ local heartConn = RunService.Heartbeat:Connect(function()
         -- Cancel out gravity so we float
         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-        hrp.CanCollide = false
+        
+        -- FULL NOCLIP: Disable collisions on EVERY part of the character so we don't get stuck on islands
+        for _, v in pairs(char:GetDescendants()) do
+            if v:IsA("BasePart") then 
+                v.CanCollide = false 
+            end
+        end
     end
     
     if _G.Moving then
@@ -218,15 +224,32 @@ local function hasFistOfDarkness()
     return false
 end
 
--- [[ ORIGINAL CHEST FINDER FROM OLD SCRIPT ]]
+-- [[ SMART CHEST FINDER (SORTED BY DISTANCE) ]]
 local function getChests()
     local chests = {}
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hrpPos = hrp and hrp.Position or Vector3.new(0,0,0)
+    
     for _, v in pairs(Workspace:GetDescendants()) do
         if string.find(v.Name:lower(), "chest") and (v:IsA("Part") or v:IsA("Model") or v:IsA("MeshPart")) then
-            table.insert(chests, v)
+            -- Make sure we don't target sub-parts like "ChestLid"
+            if not (v.Parent and string.find(v.Parent.Name:lower(), "chest")) then
+                local pos = v:IsA("Model") and v:GetPivot().Position or v.Position
+                local dist = (pos - hrpPos).Magnitude
+                table.insert(chests, {Instance = v, Pos = pos, Dist = dist})
+            end
         end
     end
-    return chests
+    
+    -- Sort by closest to furthest so we don't zigzag across the map
+    table.sort(chests, function(a, b) return a.Dist < b.Dist end)
+    
+    local finalChests = {}
+    for _, c in ipairs(chests) do
+        table.insert(finalChests, c.Instance)
+    end
+    return finalChests
 end
 
 local function getChestPos(chest)
@@ -331,17 +354,17 @@ task.spawn(function()
                         StatusLabel.Text = "Status: Flying to " .. chest.Name
                         moveTo(CFrame.new(chestPos))
                         
-                        local timeout = os.clock() + 15 
+                        local timeout = os.clock() + 8 -- 8 seconds max travel time to prevent getting stuck
                         local char = LocalPlayer.Character
                         while _G.AutoChest and char and char:FindFirstChild("HumanoidRootPart") and os.clock() < timeout do
                             if EXEC_ID ~= getgenv().AtlanticExecId then break end
                             local hrp = char.HumanoidRootPart
-                            local flatDist = (Vector3.new(chestPos.X, 0, chestPos.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
-                            -- Wait until we are very close to it
-                            if flatDist < 3 and math.abs(hrp.Position.Y - chestPos.Y) < 8 then
+                            local dist3D = (hrp.Position - chestPos).Magnitude
+                            -- If we are within 15 studs in ANY direction, break and start sweeping!
+                            if dist3D < 15 then
                                 break
                             end
-                            task.wait(0.1)
+                            task.wait(0.05)
                         end
                         
                         _G.Moving = false
@@ -355,10 +378,10 @@ task.spawn(function()
                             break
                         elseif hit then
                             StatusLabel.Text = "Status: Confirmed Hit " .. chest.Name
-                            task.wait(0.2)
+                            task.wait(0.1)
                         else
                             StatusLabel.Text = "Status: Skipped " .. chest.Name
-                            task.wait(0.2)
+                            task.wait(0.1)
                         end
                     end
                 end
