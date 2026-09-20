@@ -162,9 +162,8 @@ task.spawn(function()
     end
 end)
 
--- [[ HIGH-ALTITUDE FLIGHT PATHFINDING SYSTEM ]]
+-- [[ DIRECT FLIGHT SYSTEM ]]
 local targetCFrame = CFrame.new(0, -500, 0)
-local baseCruiseAltitude = 600 
 
 local lastUpdate = os.clock()
 local heartConn = RunService.Heartbeat:Connect(function()
@@ -178,6 +177,7 @@ local heartConn = RunService.Heartbeat:Connect(function()
     lastUpdate = currentTime
     
     if _G.AutoChest then
+        -- Cancel out gravity so we float
         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
         hrp.CanCollide = false
@@ -187,33 +187,18 @@ local heartConn = RunService.Heartbeat:Connect(function()
         local currentPos = hrp.Position
         local goalPos = targetCFrame.Position
         
-        -- Calculate flat horizontal distance to chest
-        local flatDist = (Vector3.new(goalPos.X, 0, goalPos.Z) - Vector3.new(currentPos.X, 0, currentPos.Z)).Magnitude
-        
-        -- Dynamically adjust cruise altitude so we don't fly into sky island terrain
-        local targetCruiseAlt = math.max(baseCruiseAltitude, goalPos.Y + 150)
-        
-        if flatDist > 5 then
-            -- Phase 1 & 2: We need to travel horizontally. Maintain cruise altitude.
-            if currentPos.Y < targetCruiseAlt - 10 then
-                -- Ascend straight up
-                goalPos = Vector3.new(currentPos.X, targetCruiseAlt, currentPos.Z)
-            else
-                -- Move towards the chest X/Z, keeping cruise altitude
-                goalPos = Vector3.new(goalPos.X, targetCruiseAlt, goalPos.Z)
-            end
-        end
-        -- Phase 3: If flatDist <= 5, we drop down to the exact chest Y position. (goalPos remains unchanged)
-        
+        -- Fly directly to the target in a straight line
         local direction = (goalPos - currentPos)
         local distance = direction.Magnitude
         local maxStep = _G.GlobalTweenSpeed * dt
         
         if distance > maxStep then
             local moveVector = direction.Unit * maxStep
+            -- Move directly towards the chest and look at it
             hrp.CFrame = CFrame.new(currentPos + moveVector, goalPos)
         else
-            hrp.CFrame = CFrame.new(goalPos)
+            -- Snap exactly when we reach it
+            hrp.CFrame = targetCFrame
         end
     end
 end)
@@ -266,8 +251,7 @@ local function getChestPos(chest)
         sizeY = chest.Size.Y
     end
     
-    -- If the chest has a massive hitbox (like 200 studs tall), move our target down to the bottom of it
-    -- This stops the script from flying 100 meters above the visual chest
+    -- If the chest has a massive hitbox, move our target down to the bottom of it
     if sizeY > 5 then
         pos = Vector3.new(pos.X, pos.Y - (sizeY / 2), pos.Z)
     end
@@ -301,7 +285,6 @@ local function fastAreaCheck(chest)
         
         local angle = i * math.rad(75)
         local radius = 0.5 + (i * 0.3)
-        -- Add a slight vertical sine wave so we hit hitboxes that might be slightly above or below the visual model
         local yOffset = math.sin(i * 0.5) * 2 
         
         local offset = Vector3.new(math.cos(angle) * radius, yOffset, math.sin(angle) * radius)
@@ -374,7 +357,7 @@ task.spawn(function()
                                 if EXEC_ID ~= getgenv().AtlanticExecId then break end
                                 local hrp = char.HumanoidRootPart
                                 local flatDist = (Vector3.new(chestPos.X, 0, chestPos.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
-                                -- Wait until we are perfectly above it and have dropped down close to it
+                                -- Wait until we are very close to it
                                 if flatDist < 3 and math.abs(hrp.Position.Y - chestPos.Y) < 8 then
                                     break
                                 end
