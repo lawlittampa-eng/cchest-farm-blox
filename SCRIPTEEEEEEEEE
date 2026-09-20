@@ -36,7 +36,7 @@ ToggleFrame.Parent = ScreenGui
 ToggleFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 ToggleFrame.BorderSizePixel = 0
 ToggleFrame.Position = UDim2.new(0.05, 0, 0.3, 0)
-ToggleFrame.Size = UDim2.new(0, 220, 0, 120)
+ToggleFrame.Size = UDim2.new(0, 240, 0, 120)
 ToggleFrame.Active = true
 ToggleFrame.Draggable = true
 
@@ -92,7 +92,7 @@ ToggleButton.MouseButton1Click:Connect(function()
     end
 end)
 
--- [[ RUNTIME SYSTEM (UI BASED) ]]
+-- [[ ADVANCED RUNTIME SYSTEM (UI BASED) ]]
 local hubStartTime = os.time()
 
 local function formatTime(seconds)
@@ -104,7 +104,14 @@ end
 
 task.spawn(function()
     while task.wait(1) do
+        -- Get Server Time (Fallback to 0 if game doesn't use DistributedGameTime)
         local serverTime = workspace.DistributedGameTime or 0
+        
+        -- If DistributedGameTime fails, estimate it from when the script loaded
+        if serverTime == 0 then
+            serverTime = os.time() - hubStartTime
+        end
+        
         local hubTime = os.time() - hubStartTime
         RuntimeLabel.Text = "Server: " .. formatTime(serverTime) .. " | Hub: " .. formatTime(hubTime)
     end
@@ -200,7 +207,7 @@ local function isChestHit(chest)
     return false
 end
 
--- [[ FAST AREA SWEEP (Checks circle area rapidly) ]]
+-- [[ FAST AREA SWEEP (1-Second Expanding Spiral) ]]
 local function fastAreaCheck(chest)
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return false end
@@ -209,22 +216,22 @@ local function fastAreaCheck(chest)
     local chestPos = getChestPos(chest)
     if not chestPos then return false end
     
-    _G.Moving = false -- Disable Heartbeat mover so we can manually sweep fast
+    _G.Moving = false -- Disable default Heartbeat mover so we can manually sweep fast
     local startTime = os.clock()
     
     -- We rapidly sweep the area at the chest to trigger touch/collection in <1 sec
-    for i = 1, 25 do
-        if isChestHit(chest) or os.clock() - startTime > 1.5 then break end
+    for i = 1, 20 do
+        if isChestHit(chest) or os.clock() - startTime > 1.0 then break end
         
-        local angle = i * math.rad(75) -- Rotate 75 degrees each step
-        local radius = 0.5 + (i * 0.2) -- Gradually expand outward from center
+        local angle = i * math.rad(85) -- Rotate 85 degrees each step
+        local radius = 0.5 + (i * 0.25) -- Gradually expand outward from center to ensure all hitboxes are touched
         local offset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
         
-        local targetCFrame = CFrame.new(chestPos + offset)
+        local targetCFrame = CFrame.new(chestPos + offset, chestPos)
         -- Fast but Lerp'd movement to prevent hard teleport flags
-        hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.9)
+        hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.8)
         
-        task.wait(0.02)
+        task.wait(0.05)
     end
     
     return isChestHit(chest)
