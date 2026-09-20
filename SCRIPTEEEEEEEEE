@@ -20,7 +20,7 @@ local ScreenGui = Instance.new("ScreenGui")
 local ToggleFrame = Instance.new("Frame")
 local StatusLabel = Instance.new("TextLabel")
 local TimerLabel = Instance.new("TextLabel")
-var RadarLabel = Instance.new("TextLabel")
+local RadarLabel = Instance.new("TextLabel")
 local ToggleButton = Instance.new("TextButton")
 
 ScreenGui.Name = "AtlanticFoDHunter"
@@ -293,60 +293,59 @@ task.spawn(function()
             StatusLabel.Text = "Status: FIST OF DARKNESS ACQUIRED!"
             RadarLabel.Text = "Sea Beast: None | FoD: FOUND!"
             RadarLabel.TextColor3 = Color3.fromRGB(50, 255, 50)
-            continue
-        end
-        
-        if _G.AutoChest then
-            local chests = getChests()
-            StatusLabel.Text = "Status: Scanning Islands... (" .. #chests .. " Left)"
-            
-            for _, chest in ipairs(chests) do
-                if not _G.AutoChest or hasFistOfDarkness() then break end
-                if chest and chest.Parent and not isChestHit(chest) and not table.find(blacklistedChests, chest) then
-                    local chestPos = getChestPos(chest)
-                    if chestPos then
-                        StatusLabel.Text = "Status: Flying to " .. chest.Name
-                        
-                        moveTo(CFrame.new(chestPos))
-                        
-                        local timeout = os.clock() + 15 
-                        local char = LocalPlayer.Character
-                        while _G.AutoChest and char and char:FindFirstChild("HumanoidRootPart") and os.clock() < timeout do
-                            local hrp = char.HumanoidRootPart
-                            local flatDist = (Vector3.new(chestPos.X, 0, chestPos.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
-                            if flatDist < 3 and math.abs(hrp.Position.Y - chestPos.Y) < 10 then
-                                break
+        else
+            if _G.AutoChest then
+                local chests = getChests()
+                StatusLabel.Text = "Status: Scanning Islands... (" .. #chests .. " Left)"
+                
+                for _, chest in ipairs(chests) do
+                    if not _G.AutoChest or hasFistOfDarkness() then break end
+                    if chest and chest.Parent and not isChestHit(chest) and not table.find(blacklistedChests, chest) then
+                        local chestPos = getChestPos(chest)
+                        if chestPos then
+                            StatusLabel.Text = "Status: Flying to " .. chest.Name
+                            
+                            moveTo(CFrame.new(chestPos))
+                            
+                            local timeout = os.clock() + 15 
+                            local char = LocalPlayer.Character
+                            while _G.AutoChest and char and char:FindFirstChild("HumanoidRootPart") and os.clock() < timeout do
+                                local hrp = char.HumanoidRootPart
+                                local flatDist = (Vector3.new(chestPos.X, 0, chestPos.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
+                                if flatDist < 3 and math.abs(hrp.Position.Y - chestPos.Y) < 10 then
+                                    break
+                                end
+                                task.wait(0.1)
                             end
-                            task.wait(0.1)
-                        end
-                        
-                        _G.Moving = false
-                        
-                        if not _G.AutoChest or hasFistOfDarkness() then break end
-                        
-                        StatusLabel.Text = "Status: Sweeping " .. chest.Name
-                        local hit = fastAreaCheck(chest)
-                        
-                        if hasFistOfDarkness() then
-                            break -- Break immediately if FoD was picked up during sweep
-                        elseif hit then
-                            -- Chest was opened/collected, but no FoD. Blacklist it.
-                            table.insert(blacklistedChests, chest)
-                            StatusLabel.Text = "Status: Cleared " .. chest.Name
-                            task.wait(0.2)
-                        else
-                            -- Un-openable chest (maybe fake, or bugged). Blacklist it so we don't get stuck.
-                            table.insert(blacklistedChests, chest)
-                            StatusLabel.Text = "Status: Blacklisted " .. chest.Name
-                            task.wait(0.2)
+                            
+                            _G.Moving = false
+                            
+                            if not _G.AutoChest or hasFistOfDarkness() then break end
+                            
+                            StatusLabel.Text = "Status: Sweeping " .. chest.Name
+                            local hit = fastAreaCheck(chest)
+                            
+                            if hasFistOfDarkness() then
+                                break -- Break immediately if FoD was picked up during sweep
+                            elseif hit then
+                                -- Chest was opened/collected, but no FoD. Blacklist it.
+                                table.insert(blacklistedChests, chest)
+                                StatusLabel.Text = "Status: Cleared " .. chest.Name
+                                task.wait(0.2)
+                            else
+                                -- Un-openable chest (maybe fake, or bugged). Blacklist it so we don't get stuck.
+                                table.insert(blacklistedChests, chest)
+                                StatusLabel.Text = "Status: Blacklisted " .. chest.Name
+                                task.wait(0.2)
+                            end
                         end
                     end
                 end
-            end
-            
-            -- Clear blacklist if all current chests are gone to allow fresh respawns
-            if #chests == 0 then
-                blacklistedChests = {}
+                
+                -- Clear blacklist if all current chests are gone to allow fresh respawns
+                if #chests == 0 then
+                    blacklistedChests = {}
+                end
             end
         end
     end
