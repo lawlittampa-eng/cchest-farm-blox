@@ -12,6 +12,7 @@ local LocalPlayer = Players.LocalPlayer
 _G.AutoChest = false
 _G.GlobalTweenSpeed = 300
 _G.Moving = false
+_G.Sweeping = false
 
 -- [[ BASIC UI (NO LIBRARIES) ]]
 local ScreenGui = Instance.new("ScreenGui")
@@ -92,7 +93,7 @@ ToggleButton.MouseButton1Click:Connect(function()
     end
 end)
 
--- [[ ADVANCED RUNTIME SYSTEM (UI BASED) ]]
+-- [[ ADVANCED RUNTIME SYSTEM ]]
 local hubStartTime = os.time()
 
 local function formatTime(seconds)
@@ -104,20 +105,16 @@ end
 
 task.spawn(function()
     while task.wait(1) do
-        -- Get Server Time (Fallback to 0 if game doesn't use DistributedGameTime)
         local serverTime = workspace.DistributedGameTime or 0
-        
-        -- If DistributedGameTime fails, estimate it from when the script loaded
         if serverTime == 0 then
             serverTime = os.time() - hubStartTime
         end
-        
         local hubTime = os.time() - hubStartTime
         RuntimeLabel.Text = "Server: " .. formatTime(serverTime) .. " | Hub: " .. formatTime(hubTime)
     end
 end)
 
--- [[ MOVEMENT SYSTEM (Anti-AntiCheat Safe) ]]
+-- [[ MOVEMENT & FLOAT SYSTEM ]]
 local block = Instance.new("Part")
 block.Size = Vector3.new(1, 1, 1)
 block.Name = "AtlanticHubTweenBlock"
@@ -138,18 +135,38 @@ RunService.Heartbeat:Connect(function()
     local dt = currentTime - lastUpdate
     lastUpdate = currentTime
     
+    -- FLOAT MECHANIC: If AutoChest is on, cancel gravity completely so you never fall
+    if _G.AutoChest then
+        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+    end
+    
     if _G.Moving then
-        local direction = (block.Position - hrp.Position)
+        local targetPos = block.Position
+        local currentPos = hrp.Position
+        
+        -- Calculate flat horizontal distance to chest
+        local flatDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(currentPos.X, 0, currentPos.Z)).Magnitude
+        
+        local desiredY = targetPos.Y
+        -- If we are far away horizontally, do not drop down into the ocean. 
+        -- Maintain our current height (or go higher) until we are directly above the chest.
+        if flatDist > 5 then
+            desiredY = math.max(currentPos.Y, targetPos.Y)
+        end
+        
+        local adjustedTarget = Vector3.new(targetPos.X, desiredY, targetPos.Z)
+        local direction = (adjustedTarget - currentPos)
         local distance = direction.Magnitude
         
-        -- Max distance we can move this frame based on speed (Stops instant teleport flags)
         local maxStep = _G.GlobalTweenSpeed * dt
         
         if distance > maxStep then
             local moveVector = direction.Unit * maxStep
             -- Move smoothly and look towards target
-            hrp.CFrame = CFrame.new(hrp.Position + moveVector, block.Position)
+            hrp.CFrame = CFrame.new(currentPos + moveVector, adjustedTarget)
         else
+            -- We are close enough, snap exactly to target
             hrp.CFrame = block.CFrame
         end
         
@@ -187,20 +204,17 @@ local function getChestPos(chest)
 end
 
 local function isChestHit(chest)
-    if not chest or not chest.Parent then return true end -- Destroyed/Removed
+    if not chest or not chest.Parent then return true end
     
-    -- Check Humanoid Health
     local hum = chest:FindFirstChildOfClass("Humanoid") or chest:FindFirstChild("Humanoid", true)
     if hum and hum.Health <= 0 then return true end
     
-    -- Check for "Opened" or "Open" values inside the chest
     local opened = chest:FindFirstChild("Opened", true) or chest:FindFirstChild("Open", true)
     if opened then
         if opened:IsA("BoolValue") and opened.Value then return true end
         if opened:IsA("IntValue") and opened.Value == 1 then return true end
     end
     
-    -- Check if name changed to opened/broken
     local lowerName = chest.Name:lower()
     if string.find(lowerName, "opened") or string.find(lowerName, "broken") then return true end
     
@@ -216,23 +230,26 @@ local function fastAreaCheck(chest)
     local chestPos = getChestPos(chest)
     if not chestPos then return false end
     
-    _G.Moving = false -- Disable default Heartbeat mover so we can manually sweep fast
+    _G.Moving = false 
+    _G.Sweeping = true
     local startTime = os.clock()
     
-    -- We rapidly sweep the area at the chest to trigger touch/collection in <1 sec
     for i = 1, 20 do
         if isChestHit(chest) or os.clock() - startTime > 1.0 then break end
         
-        local angle = i * math.rad(85) -- Rotate 85 degrees each step
-        local radius = 0.5 + (i * 0.25) -- Gradually expand outward from center to ensure all hitboxes are touched
+        local angle = i * math.rad(85)
+        local radius = 0.5 + (i * 0.25)
         local offset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
         
         local targetCFrame = CFrame.new(chestPos + offset, chestPos)
-        -- Fast but Lerp'd movement to prevent hard teleport flags
         hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.8)
+        
+        -- Keep velocity zeroed while sweeping so gravity doesn't pull you down
+        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         
         task.wait(0.05)
     end
+    _G.Sweeping = false
     
     return isChestHit(chest)
 end
@@ -251,15 +268,15 @@ task.spawn(function()
                     if chestPos then
                         StatusLabel.Text = "Status: Moving to " .. chest.Name
                         
-                        -- Move to chest using safe Heartbeat method
                         moveTo(CFrame.new(chestPos))
                         
-                        -- Wait until we are close to the chest
                         local timeout = os.clock() + 5
                         local char = LocalPlayer.Character
                         while _G.AutoChest and char and char:FindFirstChild("HumanoidRootPart") and os.clock() < timeout do
                             local hrp = char.HumanoidRootPart
-                            if (hrp.Position - chestPos).Magnitude < 5 then
+                            -- Wait until we are perfectly above or very close to the chest
+                            local flatDist = (Vector3.new(chestPos.X, 0, chestPos.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
+                            if flatDist < 2 then
                                 break
                             end
                             task.wait(0.1)
@@ -269,12 +286,10 @@ task.spawn(function()
                         
                         if not _G.AutoChest then break end
                         
-                        -- Confirm if we actually hit it just by arriving
                         if isChestHit(chest) then
                             StatusLabel.Text = "Status: Collected " .. chest.Name
                             task.wait(0.2)
                         else
-                            -- We arrived but didn't collect, do a fast area sweep!
                             StatusLabel.Text = "Status: Sweeping " .. chest.Name
                             local hit = fastAreaCheck(chest)
                             
