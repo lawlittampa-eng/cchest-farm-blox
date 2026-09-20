@@ -1,13 +1,37 @@
-if getgenv().AtlanticHubLoaded then return end
-getgenv().AtlanticHubLoaded = true
-
--- [[ SERVICES ]]
+-- [[ CLEANUP OLD VERSIONS ]]
+local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local VirtualUser = game:GetService("VirtualUser")
 local LocalPlayer = Players.LocalPlayer
+
+-- 1. Destroy old GUIs to replace them
+local function cleanupOldGUI()
+    local function findAndDestroy(parent)
+        if not parent then return end
+        for _, name in ipairs({"AtlanticFoDHunter", "AtlanticHubAdvanced", "AutoChestGui"}) do
+            local gui = parent:FindFirstChild(name)
+            if gui then gui:Destroy() end
+        end
+    end
+    pcall(function() findAndDestroy(CoreGui) end)
+    pcall(function() findAndDestroy(LocalPlayer:WaitForChild("PlayerGui")) end)
+end
+cleanupOldGUI()
+
+-- 2. Disconnect old events
+if getgenv().AtlanticConnections then
+    for _, conn in pairs(getgenv().AtlanticConnections) do
+        pcall(function() conn:Disconnect() end)
+    end
+end
+getgenv().AtlanticConnections = {}
+
+-- 3. Kill old loops via Execution ID
+getgenv().AtlanticExecId = (getgenv().AtlanticExecId or 0) + 1
+local EXEC_ID = getgenv().AtlanticExecId
 
 -- [[ GLOBALS ]]
 _G.AutoChest = false
@@ -91,7 +115,7 @@ local btnCorner = Instance.new("UICorner")
 btnCorner.CornerRadius = UDim.new(0, 6)
 btnCorner.Parent = ToggleButton
 
-ToggleButton.MouseButton1Click:Connect(function()
+local clickConn = ToggleButton.MouseButton1Click:Connect(function()
     _G.AutoChest = not _G.AutoChest
     if _G.AutoChest then
         ToggleButton.Text = "Hunt Fist of Darkness: ON"
@@ -103,12 +127,14 @@ ToggleButton.MouseButton1Click:Connect(function()
         _G.Moving = false
     end
 end)
+table.insert(getgenv().AtlanticConnections, clickConn)
 
 -- [[ ANTI AFK ]]
-LocalPlayer.Idled:Connect(function()
+local idleConn = LocalPlayer.Idled:Connect(function()
     VirtualUser:CaptureController()
     VirtualUser:ClickButton2(Vector2.new())
 end)
+table.insert(getgenv().AtlanticConnections, idleConn)
 
 -- [[ RUNTIME & FOD TIMER SYSTEM ]]
 local FOD_SPAWN_TIME = 4 * 3600 -- 4 hours in seconds
@@ -123,11 +149,11 @@ end
 
 task.spawn(function()
     while task.wait(1) do
+        if EXEC_ID ~= getgenv().AtlanticExecId then break end
         local serverTime = workspace.DistributedGameTime or 0
         local remaining = FOD_SPAWN_TIME - serverTime
         TimerLabel.Text = "Server: " .. formatTime(serverTime) .. " | Next FoD: " .. formatTime(remaining)
         
-        -- Visual warning when timer resets
         if remaining <= 0 then
             TimerLabel.TextColor3 = Color3.fromRGB(50, 255, 50)
         else
@@ -141,7 +167,8 @@ local targetCFrame = CFrame.new(0, -500, 0)
 local cruiseAltitude = 600 -- Fly high above all islands
 
 local lastUpdate = os.clock()
-RunService.Heartbeat:Connect(function()
+local heartConn = RunService.Heartbeat:Connect(function()
+    if EXEC_ID ~= getgenv().AtlanticExecId then return end
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end
     local hrp = char.HumanoidRootPart
@@ -178,6 +205,7 @@ RunService.Heartbeat:Connect(function()
         end
     end
 end)
+table.insert(getgenv().AtlanticConnections, heartConn)
 
 local function moveTo(goalCFrame)
     targetCFrame = goalCFrame
@@ -263,6 +291,7 @@ end
 -- [[ BACKGROUND RADAR FOR SEA BEASTS ]]
 task.spawn(function()
     while task.wait(2) do
+        if EXEC_ID ~= getgenv().AtlanticExecId then break end
         local beastFound = false
         for _, v in pairs(Workspace:GetDescendants()) do
             if string.find(v.Name:lower(), "sea beast") or string.find(v.Name:lower(), "seabeast") then
@@ -284,7 +313,8 @@ end)
 -- [[ MAIN FOD HUNTER LOGIC ]]
 task.spawn(function()
     while task.wait(0.5) do
-        -- STOP CONDITION: If we got the Fist of Darkness!
+        if EXEC_ID ~= getgenv().AtlanticExecId then break end
+        
         if hasFistOfDarkness() then
             _G.AutoChest = false
             _G.Moving = false
@@ -299,7 +329,9 @@ task.spawn(function()
                 StatusLabel.Text = "Status: Scanning Islands... (" .. #chests .. " Left)"
                 
                 for _, chest in ipairs(chests) do
+                    if EXEC_ID ~= getgenv().AtlanticExecId then break end
                     if not _G.AutoChest or hasFistOfDarkness() then break end
+                    
                     if chest and chest.Parent and not isChestHit(chest) and not table.find(blacklistedChests, chest) then
                         local chestPos = getChestPos(chest)
                         if chestPos then
@@ -310,6 +342,7 @@ task.spawn(function()
                             local timeout = os.clock() + 15 
                             local char = LocalPlayer.Character
                             while _G.AutoChest and char and char:FindFirstChild("HumanoidRootPart") and os.clock() < timeout do
+                                if EXEC_ID ~= getgenv().AtlanticExecId then break end
                                 local hrp = char.HumanoidRootPart
                                 local flatDist = (Vector3.new(chestPos.X, 0, chestPos.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
                                 if flatDist < 3 and math.abs(hrp.Position.Y - chestPos.Y) < 10 then
@@ -326,14 +359,12 @@ task.spawn(function()
                             local hit = fastAreaCheck(chest)
                             
                             if hasFistOfDarkness() then
-                                break -- Break immediately if FoD was picked up during sweep
+                                break
                             elseif hit then
-                                -- Chest was opened/collected, but no FoD. Blacklist it.
                                 table.insert(blacklistedChests, chest)
                                 StatusLabel.Text = "Status: Cleared " .. chest.Name
                                 task.wait(0.2)
                             else
-                                -- Un-openable chest (maybe fake, or bugged). Blacklist it so we don't get stuck.
                                 table.insert(blacklistedChests, chest)
                                 StatusLabel.Text = "Status: Blacklisted " .. chest.Name
                                 task.wait(0.2)
@@ -342,7 +373,6 @@ task.spawn(function()
                     end
                 end
                 
-                -- Clear blacklist if all current chests are gone to allow fresh respawns
                 if #chests == 0 then
                     blacklistedChests = {}
                 end
