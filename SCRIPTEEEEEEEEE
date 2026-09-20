@@ -218,13 +218,12 @@ local function hasFistOfDarkness()
     return false
 end
 
+-- [[ ORIGINAL CHEST FINDER FROM OLD SCRIPT ]]
 local blacklistedChests = {}
 local function getChests()
     local chests = {}
     for _, v in pairs(Workspace:GetDescendants()) do
-        -- STRICT RULE: Only target Models named exactly "Chest"
-        -- This stops it from flying to invisible "ChestDetector" parts in the sky
-        if v:IsA("Model") and v.Name == "Chest" then
+        if string.find(v.Name:lower(), "chest") and (v:IsA("Part") or v:IsA("Model") or v:IsA("MeshPart")) then
             if not table.find(blacklistedChests, v) then
                 table.insert(chests, v)
             end
@@ -235,7 +234,6 @@ end
 
 local function getChestPos(chest)
     if not chest or not chest.Parent then return nil end
-    -- GetPivot perfectly targets the base of the model on the ground
     if chest:IsA("Model") then
         return chest:GetPivot().Position
     elseif chest:IsA("BasePart") then
@@ -323,7 +321,7 @@ task.spawn(function()
         else
             if _G.AutoChest then
                 local chests = getChests()
-                StatusLabel.Text = "Status: Scanning Islands... (" .. #chests .. " Left)"
+                StatusLabel.Text = "Status: Found " .. #chests .. " Chests"
                 
                 for _, chest in ipairs(chests) do
                     if EXEC_ID ~= getgenv().AtlanticExecId then break end
