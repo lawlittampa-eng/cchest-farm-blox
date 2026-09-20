@@ -11,7 +11,7 @@ local LocalPlayer = Players.LocalPlayer
 -- [[ GLOBALS ]]
 _G.AutoChest = false
 _G.GlobalTweenSpeed = 300
-_G.Circling = false
+_G.Moving = false
 
 -- [[ BASIC UI (NO LIBRARIES) ]]
 local ScreenGui = Instance.new("ScreenGui")
@@ -88,6 +88,7 @@ ToggleButton.MouseButton1Click:Connect(function()
         ToggleButton.Text = "Auto Chest: OFF"
         ToggleButton.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
         StatusLabel.Text = "Status: Disabled"
+        _G.Moving = false
     end
 end)
 
@@ -109,9 +110,8 @@ task.spawn(function()
     end
 end)
 
--- [[ TWEEN MOVEMENT PART ]]
-local currentTween = nil
-local block = Instance.new("Part", workspace)
+-- [[ MOVEMENT SYSTEM (Anti-AntiCheat Safe) ]]
+local block = Instance.new("Part")
 block.Size = Vector3.new(1, 1, 1)
 block.Name = "AtlanticHubTweenBlock"
 block.Anchored = true
@@ -119,43 +119,41 @@ block.CanCollide = false
 block.CanTouch = false
 block.Transparency = 1
 block.CFrame = CFrame.new(0, -500, 0)
+block.Parent = workspace
 
+local lastUpdate = os.clock()
 RunService.Heartbeat:Connect(function()
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end
     local hrp = char.HumanoidRootPart
     
-    -- Only move player if we are actively tweening or circling
-    if _G.Circling or (currentTween and currentTween.PlaybackState == Enum.PlaybackState.Playing) then
-        if (hrp.Position - block.Position).Magnitude <= 200 then
-            hrp.CFrame = block.CFrame
+    local currentTime = os.clock()
+    local dt = currentTime - lastUpdate
+    lastUpdate = currentTime
+    
+    if _G.Moving then
+        local direction = (block.Position - hrp.Position)
+        local distance = direction.Magnitude
+        
+        -- Max distance we can move this frame based on speed (Stops instant teleport flags)
+        local maxStep = _G.GlobalTweenSpeed * dt
+        
+        if distance > maxStep then
+            local moveVector = direction.Unit * maxStep
+            -- Move smoothly and look towards target
+            hrp.CFrame = CFrame.new(hrp.Position + moveVector, block.Position)
         else
-            block.CFrame = hrp.CFrame
+            hrp.CFrame = block.CFrame
         end
-        for _, v in pairs(char:GetDescendants()) do
-            if v:IsA("BasePart") then v.CanCollide = false end
-        end
+        
+        -- Minimal noclip to prevent getting stuck
+        hrp.CanCollide = false
     end
 end)
 
-local function tweenTo(targetCFrame)
-    local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    local hrp = char.HumanoidRootPart
-
-    local distance = (hrp.Position - targetCFrame.Position).Magnitude
-    local timeToTravel = distance / _G.GlobalTweenSpeed
-
-    if currentTween then
-        currentTween:Cancel()
-    end
-
-    block.CFrame = hrp.CFrame
-    local tweenInfo = TweenInfo.new(timeToTravel, Enum.EasingStyle.Linear)
-    currentTween = TweenService:Create(block, tweenInfo, {CFrame = targetCFrame})
-    currentTween:Play()
-
-    return currentTween
+local function moveTo(targetCFrame)
+    block.CFrame = targetCFrame
+    _G.Moving = true
 end
 
 -- [[ HELPER FUNCTIONS ]]
@@ -163,7 +161,9 @@ local function getChests()
     local chests = {}
     for _, v in pairs(Workspace:GetDescendants()) do
         if string.find(v.Name:lower(), "chest") and (v:IsA("Part") or v:IsA("Model") or v:IsA("MeshPart")) then
-            table.insert(chests, v)
+            if v:IsA("Model") or (v:IsA("BasePart") and v.Size.Magnitude > 0.5) then
+                table.insert(chests, v)
+            end
         end
     end
     return chests
@@ -179,61 +179,55 @@ local function getChestPos(chest)
     return nil
 end
 
--- Advanced Hit Confirmation
 local function isChestHit(chest)
     if not chest or not chest.Parent then return true end -- Destroyed/Removed
-    if chest:IsA("Model") then
-        local hum = chest:FindFirstChildOfClass("Humanoid")
-        if hum and hum.Health <= 0 then return true end
-        local opened = chest:FindFirstChild("Opened")
-        if opened and opened.Value == true then return true end
-    elseif chest:IsA("BasePart") then
-        local opened = chest:FindFirstChild("Opened")
-        if opened and opened.Value == true then return true end
+    
+    -- Check Humanoid Health
+    local hum = chest:FindFirstChildOfClass("Humanoid") or chest:FindFirstChild("Humanoid", true)
+    if hum and hum.Health <= 0 then return true end
+    
+    -- Check for "Opened" or "Open" values inside the chest
+    local opened = chest:FindFirstChild("Opened", true) or chest:FindFirstChild("Open", true)
+    if opened then
+        if opened:IsA("BoolValue") and opened.Value then return true end
+        if opened:IsA("IntValue") and opened.Value == 1 then return true end
     end
+    
+    -- Check if name changed to opened/broken
+    local lowerName = chest.Name:lower()
+    if string.find(lowerName, "opened") or string.find(lowerName, "broken") then return true end
+    
     return false
 end
 
--- Generic Attack Function
-local function attack()
+-- [[ FAST AREA SWEEP (Checks circle area rapidly) ]]
+local function fastAreaCheck(chest)
     local char = LocalPlayer.Character
-    if not char then return end
-    local tool = char:FindFirstChildOfClass("Tool")
-    if tool then
-        pcall(function() tool:Activate() end)
-    end
-    pcall(function() 
-        if mouse1click then 
-            mouse1click() 
-        else
-            local VirtualInputManager = game:GetService("VirtualInputManager")
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
-        end
-    end)
-end
-
--- Circling Logic
-local function circleAndAttack(chest)
-    _G.Circling = true
-    local radius = 8
-    local angle = 0
-    local timeout = os.time() + 15 -- Timeout after 15 seconds of circling to prevent infinite loops
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return false end
+    local hrp = char.HumanoidRootPart
     
-    while _G.AutoChest and not isChestHit(chest) and os.time() < timeout do
-        local center = getChestPos(chest)
-        if center then
-            angle = angle + math.rad(60)
-            local targetPos = center + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
-            block.CFrame = CFrame.new(targetPos, center) -- Look at center while circling
-            attack()
-        else
-            break
-        end
-        task.wait(0.3)
+    local chestPos = getChestPos(chest)
+    if not chestPos then return false end
+    
+    _G.Moving = false -- Disable Heartbeat mover so we can manually sweep fast
+    local startTime = os.clock()
+    
+    -- We rapidly sweep the area at the chest to trigger touch/collection in <1 sec
+    for i = 1, 25 do
+        if isChestHit(chest) or os.clock() - startTime > 1.5 then break end
+        
+        local angle = i * math.rad(75) -- Rotate 75 degrees each step
+        local radius = 0.5 + (i * 0.2) -- Gradually expand outward from center
+        local offset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+        
+        local targetCFrame = CFrame.new(chestPos + offset)
+        -- Fast but Lerp'd movement to prevent hard teleport flags
+        hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.9)
+        
+        task.wait(0.02)
     end
     
-    _G.Circling = false
+    return isChestHit(chest)
 end
 
 -- [[ AUTO CHEST FARM ]]
@@ -246,40 +240,45 @@ task.spawn(function()
             for _, chest in ipairs(chests) do
                 if not _G.AutoChest then break end
                 if chest and chest.Parent and not isChestHit(chest) then
-                    local chestCFrame = chest:IsA("Model") and chest:GetPivot() or chest.CFrame
-                    StatusLabel.Text = "Status: Moving to " .. chest.Name
-                    
-                    local tween = tweenTo(chestCFrame)
-                    local completed = false
-                    
-                    if tween then
-                        local connection = tween.Completed:Connect(function()
-                            completed = true
-                        end)
+                    local chestPos = getChestPos(chest)
+                    if chestPos then
+                        StatusLabel.Text = "Status: Moving to " .. chest.Name
                         
-                        -- Wait for tween to complete or chest to be destroyed/already hit
-                        while not completed and chest.Parent and _G.AutoChest and not isChestHit(chest) do
+                        -- Move to chest using safe Heartbeat method
+                        moveTo(CFrame.new(chestPos))
+                        
+                        -- Wait until we are close to the chest
+                        local timeout = os.clock() + 5
+                        local char = LocalPlayer.Character
+                        while _G.AutoChest and char and char:FindFirstChild("HumanoidRootPart") and os.clock() < timeout do
+                            local hrp = char.HumanoidRootPart
+                            if (hrp.Position - chestPos).Magnitude < 5 then
+                                break
+                            end
                             task.wait(0.1)
                         end
-                        connection:Disconnect()
-                    end
-                    
-                    -- If we arrived but didn't hit it, circle and attack
-                    if chest and chest.Parent and _G.AutoChest and not isChestHit(chest) then
-                        if currentTween then currentTween:Cancel() end
-                        StatusLabel.Text = "Status: Circling " .. chest.Name
-                        circleAndAttack(chest)
                         
+                        _G.Moving = false
+                        
+                        if not _G.AutoChest then break end
+                        
+                        -- Confirm if we actually hit it just by arriving
                         if isChestHit(chest) then
-                            StatusLabel.Text = "Status: Confirmed Hit " .. chest.Name
-                            task.wait(0.5)
+                            StatusLabel.Text = "Status: Collected " .. chest.Name
+                            task.wait(0.2)
                         else
-                            StatusLabel.Text = "Status: Timed out on " .. chest.Name
-                            task.wait(0.5)
+                            -- We arrived but didn't collect, do a fast area sweep!
+                            StatusLabel.Text = "Status: Sweeping " .. chest.Name
+                            local hit = fastAreaCheck(chest)
+                            
+                            if hit then
+                                StatusLabel.Text = "Status: Confirmed Hit " .. chest.Name
+                                task.wait(0.3)
+                            else
+                                StatusLabel.Text = "Status: Timed Out " .. chest.Name
+                                task.wait(0.5)
+                            end
                         end
-                    elseif chest and not chest.Parent then
-                        StatusLabel.Text = "Status: Destroyed " .. chest.Name
-                        task.wait(0.5)
                     end
                 end
             end
